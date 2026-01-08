@@ -1,0 +1,12 @@
+color_hsv:
+  # Диапазоны зелёного цвета (HSV)
+  lower: [35, 40, 40]
+  upper: [85, 255, 255]
+shape:
+  min_area: 500
+  max_area: 200000
+  min_aspect_ratio: 1.5
+  max_aspect_ratio: 6.0
+  min_extent: 0.3
+  max_extent: 0.95
+  min_solidity: 0.6

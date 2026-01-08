@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import argparse
+
+import cv2
+from ultralytics import YOLO
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run inference on video or camera stream.")
+    parser.add_argument("--weights", required=True, help="Path to trained weights.")
+    parser.add_argument("--source", required=True, help="Video path or camera URL.")
+    parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--display", action="store_true", help="Show window with detections.")
+    parser.add_argument("--output", default=None, help="Optional output video path.")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    model = YOLO(args.weights)
+
+    cap = cv2.VideoCapture(args.source)
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open source: {args.source}")
+
+    writer = None
+    if args.output:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(args.output, fourcc, fps, (width, height))
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            results = model.predict(source=frame, conf=args.conf, save=False, verbose=False)
+            for result in results:
+                for box in result.boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            if writer is not None:
+                writer.write(frame)
+
+            if args.display:
+                cv2.imshow("Cucumber Detection", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+    finally:
+        cap.release()
+        if writer is not None:
+            writer.release()
+        cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
