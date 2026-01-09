@@ -222,21 +222,26 @@ class App(tk.Tk):
         image_path = self._row(frame, "Путь к изображению", "data/test.jpg", 2)
         output = self._row(frame, "Путь для сохранения (пусто = авто)", "", 3)
         conf = self._row(frame, "Confidence", "0.25", 4)
+        display = self._row(frame, "Показывать окно? (y/n)", "y", 5)
+        delay_ms = self._row(frame, "Задержка (мс, 0=ожидать)", "0", 6)
 
         def run_infer() -> None:
             try:
-                infer_image(
+                _, detected = infer_image(
                     weights=weights.get(),
                     image_path=image_path.get(),
                     output=output.get() or None,
                     conf=float(conf.get()),
+                    display=display.get().lower().startswith("y"),
+                    delay_ms=int(delay_ms.get()),
                 )
-                messagebox.showinfo("Готово", "Инференс завершен.")
+                message = "Огурец найден." if detected else "Огурец не найден."
+                messagebox.showinfo("Готово", f"Инференс завершен. {message}")
             except Exception as exc:
                 messagebox.showerror("Ошибка", str(exc))
 
         ttk.Button(frame, text="Запустить инференс", command=run_infer).grid(
-            row=5, column=0, columnspan=2, pady=14
+            row=7, column=0, columnspan=2, pady=14
         )
         return frame
 
