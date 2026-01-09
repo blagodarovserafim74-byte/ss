@@ -22,13 +22,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    images_dir = Path(args.images)
-    labels_dir = Path(args.labels)
+def bootstrap_labels(
+    *,
+    images_dir: Path,
+    labels_dir: Path,
+    prior_path: str,
+    class_id: int,
+) -> None:
     labels_dir.mkdir(parents=True, exist_ok=True)
-
-    prior = load_prior(load_yaml(args.prior))
+    prior = load_prior(load_yaml(prior_path))
 
     for image_path in sorted(images_dir.glob("*")):
         if image_path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".bmp"}:
@@ -44,8 +46,18 @@ def main() -> None:
             for det in detections:
                 x_center, y_center, box_w, box_h = det.to_yolo(width, height)
                 handle.write(
-                    f"{args.class_id} {x_center:.6f} {y_center:.6f} {box_w:.6f} {box_h:.6f}\n"
+                    f"{class_id} {x_center:.6f} {y_center:.6f} {box_w:.6f} {box_h:.6f}\n"
                 )
+
+
+def main() -> None:
+    args = parse_args()
+    bootstrap_labels(
+        images_dir=Path(args.images),
+        labels_dir=Path(args.labels),
+        prior_path=args.prior,
+        class_id=args.class_id,
+    )
 
 
 if __name__ == "__main__":
