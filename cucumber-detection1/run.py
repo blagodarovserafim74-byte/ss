@@ -7,8 +7,12 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 ROOT_DIR = Path(__file__).resolve().parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+PROJECT_DIR = ROOT_DIR
+if not (PROJECT_DIR / "src").exists() and (ROOT_DIR / "cucumber-detection1" / "src").exists():
+    PROJECT_DIR = ROOT_DIR / "cucumber-detection1"
+
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
 
 bootstrap_labels = importlib.import_module("src.bootstrap_labels").bootstrap_labels
 infer_image = importlib.import_module("src.infer_image").infer_image
