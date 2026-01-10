@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from src.bootstrap_labels import bootstrap_labels
-from src.train import train_model
+from .bootstrap_labels import bootstrap_labels
+from .train import train_model
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 
