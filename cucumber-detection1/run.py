@@ -1,18 +1,19 @@
 from __future__ import annotations
 
+import importlib
+import sys
 import tkinter as tk
 from pathlib import Path
-import sys
 from tkinter import messagebox, ttk
 
 ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from src.bootstrap_labels import bootstrap_labels
-from src.infer_image import infer_image
-from src.infer_video import infer_video
-from src.train import train_model
+bootstrap_labels = importlib.import_module("src.bootstrap_labels").bootstrap_labels
+infer_image = importlib.import_module("src.infer_image").infer_image
+infer_video = importlib.import_module("src.infer_video").infer_video
+train_model = importlib.import_module("src.train").train_model
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
