@@ -6,6 +6,8 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
+from .logging_utils import get_logger
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run inference on a single image.")
@@ -27,6 +29,7 @@ def infer_image(
     display: bool = False,
     delay_ms: int = 0,
 ) -> tuple[Path, bool]:
+    logger = get_logger("infer_image", Path("logs"))
     model = YOLO(weights)
     results = model.predict(source=image_path, conf=conf, save=False, verbose=False)
 
@@ -64,8 +67,10 @@ def infer_image(
     )
 
     output_path = Path(output) if output else Path(image_path).with_suffix(".detected.jpg")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(output_path), image)
-    print(f"Saved to {output_path}")
+    logger.info("Saved inference image to %s", output_path)
+    logger.info("Detected cucumber: %s", "yes" if detected else "no")
     if display:
         window_name = "Инференс: огурец"
         cv2.imshow(window_name, image)

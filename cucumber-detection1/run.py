@@ -18,9 +18,11 @@ bootstrap_labels = importlib.import_module("src.bootstrap_labels").bootstrap_lab
 infer_image = importlib.import_module("src.infer_image").infer_image
 infer_video = importlib.import_module("src.infer_video").infer_video
 train_model = importlib.import_module("src.train").train_model
+get_logger = importlib.import_module("src.logging_utils").get_logger
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+LOGGER = get_logger("run", Path("logs"))
 
 
 def _create_empty_labels(images_dir: Path, labels_dir: Path) -> None:
@@ -246,8 +248,16 @@ class App(tk.Tk):
                     delay_ms=int(delay_ms.get()),
                 )
                 message = "Огурец найден." if detected else "Огурец не найден."
-                messagebox.showinfo("Готово", f"Инференс завершен. {message}")
+                output_path = output.get() or Path(image_path.get()).with_suffix(
+                    ".detected.jpg"
+                )
+                LOGGER.info("Image inference completed: %s", message)
+                messagebox.showinfo(
+                    "Готово",
+                    f"Инференс завершен. {message}\nФайл: {output_path}",
+                )
             except Exception as exc:
+                LOGGER.exception("Image inference failed")
                 messagebox.showerror("Ошибка", str(exc))
 
         ttk.Button(frame, text="Запустить инференс", command=run_infer).grid(
