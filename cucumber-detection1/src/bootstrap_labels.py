@@ -6,19 +6,21 @@ from pathlib import Path
 import cv2
 
 from .config import load_yaml
+from .dataset_utils import label_name_for_image
 from .heuristics import draw_detections, find_cucumber_candidates, load_prior
 
 
 def parse_args() -> argparse.Namespace:
+    project_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Pseudo-label cucumber candidates from images.")
     parser.add_argument(
         "--images",
-        default=r"D:\ProjectPyCharm\cucumber-detection1\auto_train\cucumbers",
+        default=str(project_root / "auto_train" / "cucumbers"),
         help="Path to cucumber images directory.",
     )
     parser.add_argument(
         "--labels",
-        default=r"D:\ProjectPyCharm\cucumber-detection1\auto_train\uncertain",
+        default=str(project_root / "auto_train" / "uncertain"),
         help="Output labels directory.",
     )
     parser.add_argument(
@@ -55,7 +57,7 @@ def bootstrap_labels(
 
     window_name = "Псевдо-разметка: огурцы"
     try:
-        for image_path in sorted(images_dir.glob("*")):
+        for image_path in sorted(images_dir.rglob("*")):
             if image_path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".bmp"}:
                 continue
             image = cv2.imread(str(image_path))
@@ -94,7 +96,8 @@ def bootstrap_labels(
                 if key in (ord("n"), ord("N")):
                     detections = []
 
-            label_path = labels_dir / f"{image_path.stem}.txt"
+            label_name = label_name_for_image(image_path, images_dir)
+            label_path = labels_dir / f"{label_name}.txt"
             with label_path.open("w", encoding="utf-8") as handle:
                 for det in detections:
                     x_center, y_center, box_w, box_h = det.to_yolo(width, height)
