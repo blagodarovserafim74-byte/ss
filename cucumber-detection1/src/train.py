@@ -136,6 +136,18 @@ def _ensure_dataset_paths_exist(dataset: str) -> None:
         raise FileNotFoundError(message)
 
 
+def _warn_if_dataset_small(dataset: str, min_train: int = 200, min_val: int = 50) -> None:
+    from .dataset_utils import count_dataset_images
+
+    train_count, val_count = count_dataset_images(dataset)
+    if train_count < min_train or val_count < min_val:
+        print(
+            "Warning: dataset is small for reliable training. "
+            f"Found train={train_count}, val={val_count}. "
+            f"Recommended minimum is train={min_train}, val={min_val}."
+        )
+
+
 def train_model(
     *,
     dataset: str,
@@ -153,6 +165,7 @@ def train_model(
 ) -> Path:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     _ensure_dataset_paths_exist(dataset)
+    _warn_if_dataset_small(dataset)
     model = YOLO(model_path)
     save_dir = Path(project) / name
     stop_event = threading.Event()

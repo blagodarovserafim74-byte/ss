@@ -68,6 +68,25 @@ def _clear_directory(path: Path) -> None:
             entry.unlink()
 
 
+def count_images(directory: Path) -> int:
+    if not directory.exists():
+        return 0
+    return sum(
+        1
+        for image_path in directory.rglob("*")
+        if image_path.suffix.lower() in IMAGE_EXTENSIONS
+    )
+
+
+def count_dataset_images(dataset: str) -> tuple[int, int]:
+    dataset_path = Path(dataset).expanduser().resolve()
+    train_images_dir = _resolve_images_dir(dataset_path, "train")
+    val_images_dir = _resolve_images_dir(dataset_path, "val")
+    if train_images_dir is None or val_images_dir is None:
+        return 0, 0
+    return count_images(train_images_dir), count_images(val_images_dir)
+
+
 def _root_for_image(image_path: Path, cucumbers_dir: Path, negatives_dir: Path) -> Path:
     if image_path.is_relative_to(cucumbers_dir):
         return cucumbers_dir
