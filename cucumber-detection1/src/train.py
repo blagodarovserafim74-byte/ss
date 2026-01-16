@@ -3,9 +3,18 @@ from __future__ import annotations
 import argparse
 import shutil
 from pathlib import Path
+import sys
+import threading
+import time
 
 import torch
 from ultralytics import YOLO
+
+if __package__ in (None, ""):
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from config import load_yaml  # type: ignore[reportMissingImports]
+else:
+    from .config import load_yaml
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,6 +29,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=None, help="cuda or cpu; auto if not set")
     parser.add_argument("--save-period", type=int, default=1, help="How often to save checkpoints.")
     parser.add_argument("--resume", action="store_true", help="Resume training from last checkpoint.")
+    parser.add_argument(
+        "--resume-from-latest",
+        action="store_true",
+        help="Start from the most recent weights in the weights directory.",
+    )
     parser.add_argument(
         "--weights-dir",
         default="weights",
@@ -42,6 +56,114 @@ def _copy_weights(save_dir: Path, weights_dir: Path) -> None:
             print(f"Saved {name} to {target}")
 
 
+def _find_latest_weights(weights_dir: Path, experiment_name: str) -> Path | None:
+    if not weights_dir.exists():
+        return None
+    candidates = list(weights_dir.glob(f"{experiment_name}_*.pt"))
+    if not candidates:
+        candidates = list(weights_dir.glob("*.pt"))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def _autosave_loop(
+    *,
+    save_dir: Path,
+    weights_dir: Path,
+    interval_minutes: int,
+    stop_event: threading.Event,
+) -> None:
+    interval_seconds = max(interval_minutes, 1) * 60
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    last_seen_mtime: float | None = None
+    while not stop_event.wait(interval_seconds):
+        last_path = save_dir / "weights" / "last.pt"
+        if not last_path.exists():
+            continue
+        try:
+            mtime = last_path.stat().st_mtime
+            if last_seen_mtime is None or mtime != last_seen_mtime:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                target = weights_dir / f"{save_dir.name}_autosave_{timestamp}.pt"
+                shutil.copy2(last_path, target)
+                print(f"Auto-saved checkpoint to {target}")
+                last_seen_mtime = mtime
+        except Exception as exc:
+            print(f"Auto-save failed: {exc}")
+
+
+def _resolve_dataset_paths(dataset_path: Path) -> list[Path]:
+    data = load_yaml(dataset_path)
+    base = data.get("path", "")
+    base_path = Path(base)
+    if not base_path.is_absolute():
+        resolved_from_config = (dataset_path.parent / base_path).resolve()
+        project_root = dataset_path.parents[1] / base_path
+        if resolved_from_config.exists() or not project_root.exists():
+            base_path = resolved_from_config
+        else:
+            base_path = project_root.resolve()
+
+    resolved: list[Path] = []
+    for split in ("train", "val", "test"):
+        value = data.get(split)
+        if not value:
+            continue
+        if isinstance(value, (list, tuple)):
+            entries = value
+        else:
+            entries = [value]
+        for entry in entries:
+            entry_path = Path(entry)
+            if not entry_path.is_absolute():
+                entry_path = base_path / entry_path
+            resolved.append(entry_path)
+    return resolved
+
+
+def _ensure_dataset_paths_exist(dataset: str) -> None:
+    dataset_path = Path(dataset).expanduser().resolve()
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Dataset config not found: {dataset_path}")
+
+    missing = [path for path in _resolve_dataset_paths(dataset_path) if not path.exists()]
+    if missing:
+        project_root = dataset_path.parents[1]
+        auto_images = project_root / "auto_train" / "cucumbers"
+        auto_negatives = project_root / "auto_train" / "not_cucumbers"
+        auto_labels = project_root / "auto_train" / "uncertain"
+        if auto_images.exists() and auto_labels.exists():
+            from .dataset_utils import prepare_auto_train_dataset
+
+            prepare_auto_train_dataset(
+                dataset=str(dataset_path),
+                cucumbers_dir=auto_images,
+                negatives_dir=auto_negatives,
+                labels_dir=auto_labels,
+            )
+            missing = [path for path in _resolve_dataset_paths(dataset_path) if not path.exists()]
+    if missing:
+        missing_list = "\n".join(f"- {path}" for path in missing)
+        message = (
+            "Dataset images not found. Please update the dataset paths or place data in the expected "
+            f"location.\nDataset config: {dataset_path}\nMissing paths:\n{missing_list}"
+        )
+        raise FileNotFoundError(message)
+
+
+def _warn_if_dataset_small(dataset: str, min_train: int = 200, min_val: int = 50) -> None:
+    from .dataset_utils import count_dataset_images
+
+    train_count, val_count = count_dataset_images(dataset)
+    if train_count < min_train or val_count < min_val:
+        print(
+            "Warning: dataset is small for reliable training. "
+            f"Found train={train_count}, val={val_count}. "
+            f"Recommended minimum is train={min_train}, val={min_val}."
+        )
+
+
 def train_model(
     *,
     dataset: str,
@@ -55,28 +177,78 @@ def train_model(
     save_period: int,
     resume: bool,
     weights_dir: str,
+    autosave_minutes: int | None = None,
+    resume_from_latest: bool = False,
 ) -> Path:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    model = YOLO(model_path)
-    model.train(
-        data=str(Path(dataset)),
-        epochs=epochs,
-        imgsz=imgsz,
-        batch=batch,
-        device=device,
-        project=project,
-        name=name,
-        save=True,
-        save_period=save_period,
-        resume=resume,
-        exist_ok=True,
-    )
+    _ensure_dataset_paths_exist(dataset)
+    _warn_if_dataset_small(dataset)
+    weights_dir_path = Path(weights_dir)
+    selected_model_path = model_path
+    if resume_from_latest and not resume:
+        latest_weights = _find_latest_weights(weights_dir_path, name)
+        if latest_weights is not None:
+            selected_model_path = str(latest_weights)
+            print(f"Using latest weights for fine-tuning: {selected_model_path}")
+    model = YOLO(selected_model_path)
+    save_dir = Path(project) / name
+    stop_event = threading.Event()
+    autosave_thread: threading.Thread | None = None
+    if autosave_minutes is not None and autosave_minutes > 0:
+        autosave_thread = threading.Thread(
+            target=_autosave_loop,
+            kwargs={
+                "save_dir": save_dir,
+                "weights_dir": weights_dir_path,
+                "interval_minutes": autosave_minutes,
+                "stop_event": stop_event,
+            },
+            daemon=True,
+        )
+        autosave_thread.start()
+    try:
+        model.train(
+            data=str(Path(dataset)),
+            epochs=epochs,
+            imgsz=imgsz,
+            batch=batch,
+            device=device,
+            project=project,
+            name=name,
+            save=True,
+            save_period=save_period,
+            resume=resume,
+            exist_ok=True,
+        )
+    except Exception as exc:
+        message = str(exc).lower()
+        if resume and "nothing to resume" in message:
+            print("Resume requested but no checkpoint to resume; starting fresh run.")
+            model.train(
+                data=str(Path(dataset)),
+                epochs=epochs,
+                imgsz=imgsz,
+                batch=batch,
+                device=device,
+                project=project,
+                name=name,
+                save=True,
+                save_period=save_period,
+                resume=False,
+                exist_ok=True,
+            )
+        else:
+            raise
+
+    stop_event.set()
+    if autosave_thread is not None:
+        autosave_thread.join(timeout=5)
 
     save_dir = None
     trainer = getattr(model, "trainer", None)
     if trainer is not None:
         save_dir = Path(trainer.save_dir)
-        _copy_weights(save_dir, Path(weights_dir))
+        _copy_weights(save_dir, weights_dir_path)
     return save_dir if save_dir is not None else Path(project) / name
 
 
@@ -94,6 +266,7 @@ def main() -> None:
         save_period=args.save_period,
         resume=args.resume,
         weights_dir=args.weights_dir,
+        resume_from_latest=args.resume_from_latest,
     )
 
 

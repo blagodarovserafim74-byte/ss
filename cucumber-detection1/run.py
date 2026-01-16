@@ -15,6 +15,8 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 bootstrap_labels = importlib.import_module("src.bootstrap_labels").bootstrap_labels
+prepare_auto_train_dataset = importlib.import_module("src.dataset_utils").prepare_auto_train_dataset
+label_name_for_image = importlib.import_module("src.dataset_utils").label_name_for_image
 infer_image = importlib.import_module("src.infer_image").infer_image
 infer_video = importlib.import_module("src.infer_video").infer_video
 train_model = importlib.import_module("src.train").train_model
@@ -27,12 +29,17 @@ LOGGER = get_logger("run", Path("logs"))
 
 def _create_empty_labels(images_dir: Path, labels_dir: Path) -> None:
     labels_dir.mkdir(parents=True, exist_ok=True)
-    for image_path in sorted(images_dir.glob("*")):
+    for image_path in sorted(images_dir.rglob("*")):
         if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
             continue
-        label_path = labels_dir / f"{image_path.stem}.txt"
+        label_name = label_name_for_image(image_path, images_dir)
+        label_path = labels_dir / f"{label_name}.txt"
         if not label_path.exists():
             label_path.write_text("", encoding="utf-8")
+
+
+def _default_path(*parts: str) -> str:
+    return str(PROJECT_DIR.joinpath(*parts))
 
 
 class App(tk.Tk):
@@ -81,19 +88,19 @@ class App(tk.Tk):
         images = self._row(
             frame,
             "Папка с огурцами",
-            r"D:\ProjectPyCharm\cucumber-detection1\auto_train\cucumbers",
+            _default_path("auto_train", "cucumbers"),
             1,
         )
         negatives = self._row(
             frame,
             "Папка с не-огурцами",
-            r"D:\ProjectPyCharm\cucumber-detection1\auto_train\not_cucumbers",
+            _default_path("auto_train", "not_cucumbers"),
             2,
         )
         labels = self._row(
             frame,
             "Папка для меток",
-            r"D:\ProjectPyCharm\cucumber-detection1\auto_train\uncertain",
+            _default_path("auto_train", "uncertain"),
             3,
         )
         prior = self._row(frame, "Файл prior", "configs/cucumber_prior.yaml", 4)
@@ -108,8 +115,10 @@ class App(tk.Tk):
         save_period = self._row(frame, "Период сохранения (эпохи)", "1", 13)
         resume = self._row(frame, "Продолжить обучение? (y/n)", "n", 14)
         weights_dir = self._row(frame, "Папка для весов", "weights", 15)
-        review = self._row(frame, "Модерация? (y/n)", "y", 16)
-        delay_ms = self._row(frame, "Задержка (мс, 0=ожидать)", "0", 17)
+        resume_latest = self._row(frame, "Дообучать с последних весов? (y/n)", "y", 16)
+        review = self._row(frame, "Модерация? (y/n)", "y", 17)
+        delay_ms = self._row(frame, "Задержка (мс, 0=ожидать)", "0", 18)
+        autosave_minutes = self._row(frame, "Автосохранение (мин)", "15", 19)
 
         def run_auto() -> None:
             try:
@@ -122,6 +131,12 @@ class App(tk.Tk):
                     delay_ms=int(delay_ms.get()),
                 )
                 _create_empty_labels(Path(negatives.get()), Path(labels.get()))
+                prepare_auto_train_dataset(
+                    dataset=dataset.get(),
+                    cucumbers_dir=Path(images.get()),
+                    negatives_dir=Path(negatives.get()),
+                    labels_dir=Path(labels.get()),
+                )
                 train_model(
                     dataset=dataset.get(),
                     model_path=model.get(),
@@ -134,13 +149,58 @@ class App(tk.Tk):
                     save_period=int(save_period.get()),
                     resume=resume.get().lower().startswith("y"),
                     weights_dir=weights_dir.get(),
+                    autosave_minutes=None,
+                    resume_from_latest=resume_latest.get().lower().startswith("y"),
                 )
                 messagebox.showinfo("Готово", "Автообучение завершено.")
+            except KeyboardInterrupt:
+                messagebox.showinfo("Остановлено", "Автообучение остановлено пользователем.")
+            except Exception as exc:
+                messagebox.showerror("Ошибка", str(exc))
+
+        def run_unattended() -> None:
+            try:
+                bootstrap_labels(
+                    images_dir=Path(images.get()),
+                    labels_dir=Path(labels.get()),
+                    prior_path=prior.get(),
+                    class_id=int(class_id.get()),
+                    review=False,
+                    delay_ms=0,
+                )
+                _create_empty_labels(Path(negatives.get()), Path(labels.get()))
+                prepare_auto_train_dataset(
+                    dataset=dataset.get(),
+                    cucumbers_dir=Path(images.get()),
+                    negatives_dir=Path(negatives.get()),
+                    labels_dir=Path(labels.get()),
+                )
+                train_model(
+                    dataset=dataset.get(),
+                    model_path=model.get(),
+                    epochs=int(epochs.get()),
+                    imgsz=int(imgsz.get()),
+                    batch=int(batch.get()),
+                    project=project.get(),
+                    name=name.get(),
+                    device=None,
+                    save_period=int(save_period.get()),
+                    resume=True,
+                    weights_dir=weights_dir.get(),
+                    autosave_minutes=int(autosave_minutes.get()),
+                    resume_from_latest=resume_latest.get().lower().startswith("y"),
+                )
+                messagebox.showinfo("Готово", "Обучение без человека завершено.")
+            except KeyboardInterrupt:
+                messagebox.showinfo("Остановлено", "Обучение остановлено пользователем.")
             except Exception as exc:
                 messagebox.showerror("Ошибка", str(exc))
 
         ttk.Button(frame, text="Запустить автообучение", command=run_auto).grid(
-            row=18, column=0, columnspan=2, pady=14
+            row=20, column=0, columnspan=2, pady=(8, 4)
+        )
+        ttk.Button(frame, text="Начать обучение без человека", command=run_unattended).grid(
+            row=21, column=0, columnspan=2, pady=(4, 14)
         )
         return frame
 
@@ -159,6 +219,7 @@ class App(tk.Tk):
         save_period = self._row(frame, "Период сохранения (эпохи)", "1", 8)
         resume = self._row(frame, "Продолжить обучение? (y/n)", "n", 9)
         weights_dir = self._row(frame, "Папка для весов", "weights", 10)
+        resume_latest = self._row(frame, "Дообучать с последних весов? (y/n)", "y", 11)
 
         def run_train() -> None:
             try:
@@ -174,13 +235,14 @@ class App(tk.Tk):
                     save_period=int(save_period.get()),
                     resume=resume.get().lower().startswith("y"),
                     weights_dir=weights_dir.get(),
+                    resume_from_latest=resume_latest.get().lower().startswith("y"),
                 )
                 messagebox.showinfo("Готово", "Обучение завершено.")
             except Exception as exc:
                 messagebox.showerror("Ошибка", str(exc))
 
         ttk.Button(frame, text="Запустить обучение", command=run_train).grid(
-            row=11, column=0, columnspan=2, pady=14
+            row=12, column=0, columnspan=2, pady=14
         )
         return frame
 
@@ -192,13 +254,13 @@ class App(tk.Tk):
         images = self._row(
             frame,
             "Папка с огурцами",
-            r"D:\ProjectPyCharm\cucumber-detection1\auto_train\cucumbers",
+            _default_path("auto_train", "cucumbers"),
             1,
         )
         labels = self._row(
             frame,
             "Папка для меток",
-            r"D:\ProjectPyCharm\cucumber-detection1\auto_train\uncertain",
+            _default_path("auto_train", "uncertain"),
             2,
         )
         prior = self._row(frame, "Файл prior", "configs/cucumber_prior.yaml", 3)
@@ -217,6 +279,8 @@ class App(tk.Tk):
                     delay_ms=int(delay_ms.get()),
                 )
                 messagebox.showinfo("Готово", "Псевдо-разметка завершена.")
+            except KeyboardInterrupt:
+                messagebox.showinfo("Остановлено", "Псевдо-разметка остановлена пользователем.")
             except Exception as exc:
                 messagebox.showerror("Ошибка", str(exc))
 
