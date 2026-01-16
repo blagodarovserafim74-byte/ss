@@ -30,6 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-period", type=int, default=1, help="How often to save checkpoints.")
     parser.add_argument("--resume", action="store_true", help="Resume training from last checkpoint.")
     parser.add_argument(
+        "--resume-from-latest",
+        action="store_true",
+        help="Start from the most recent weights in the weights directory.",
+    )
+    parser.add_argument(
         "--weights-dir",
         default="weights",
         help="Directory to copy best/last weights after training.",
@@ -49,6 +54,17 @@ def _copy_weights(save_dir: Path, weights_dir: Path) -> None:
             target = weights_dir / f"{save_dir.name}_{name}"
             shutil.copy2(source, target)
             print(f"Saved {name} to {target}")
+
+
+def _find_latest_weights(weights_dir: Path, experiment_name: str) -> Path | None:
+    if not weights_dir.exists():
+        return None
+    candidates = list(weights_dir.glob(f"{experiment_name}_*.pt"))
+    if not candidates:
+        candidates = list(weights_dir.glob("*.pt"))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
 def _autosave_loop(
@@ -162,11 +178,19 @@ def train_model(
     resume: bool,
     weights_dir: str,
     autosave_minutes: int | None = None,
+    resume_from_latest: bool = False,
 ) -> Path:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     _ensure_dataset_paths_exist(dataset)
     _warn_if_dataset_small(dataset)
-    model = YOLO(model_path)
+    weights_dir_path = Path(weights_dir)
+    selected_model_path = model_path
+    if resume_from_latest and not resume:
+        latest_weights = _find_latest_weights(weights_dir_path, name)
+        if latest_weights is not None:
+            selected_model_path = str(latest_weights)
+            print(f"Using latest weights for fine-tuning: {selected_model_path}")
+    model = YOLO(selected_model_path)
     save_dir = Path(project) / name
     stop_event = threading.Event()
     autosave_thread: threading.Thread | None = None
@@ -175,7 +199,7 @@ def train_model(
             target=_autosave_loop,
             kwargs={
                 "save_dir": save_dir,
-                "weights_dir": Path(weights_dir),
+                "weights_dir": weights_dir_path,
                 "interval_minutes": autosave_minutes,
                 "stop_event": stop_event,
             },
@@ -224,7 +248,7 @@ def train_model(
     trainer = getattr(model, "trainer", None)
     if trainer is not None:
         save_dir = Path(trainer.save_dir)
-        _copy_weights(save_dir, Path(weights_dir))
+        _copy_weights(save_dir, weights_dir_path)
     return save_dir if save_dir is not None else Path(project) / name
 
 
@@ -242,6 +266,7 @@ def main() -> None:
         save_period=args.save_period,
         resume=args.resume,
         weights_dir=args.weights_dir,
+        resume_from_latest=args.resume_from_latest,
     )
 
 

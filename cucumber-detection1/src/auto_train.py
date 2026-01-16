@@ -56,6 +56,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-period", type=int, default=1)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--weights-dir", default="weights")
+    parser.add_argument(
+        "--resume-from-latest",
+        action="store_true",
+        help="Start from the most recent weights in the weights directory.",
+    )
     return parser.parse_args()
 
 
@@ -92,6 +97,7 @@ def main() -> None:
         resume=args.resume,
         weights_dir=args.weights_dir,
         autosave_minutes=autosave_minutes,
+        resume_from_latest=args.resume_from_latest,
     )
 
 

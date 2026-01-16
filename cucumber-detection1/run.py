@@ -115,9 +115,10 @@ class App(tk.Tk):
         save_period = self._row(frame, "Период сохранения (эпохи)", "1", 13)
         resume = self._row(frame, "Продолжить обучение? (y/n)", "n", 14)
         weights_dir = self._row(frame, "Папка для весов", "weights", 15)
-        review = self._row(frame, "Модерация? (y/n)", "y", 16)
-        delay_ms = self._row(frame, "Задержка (мс, 0=ожидать)", "0", 17)
-        autosave_minutes = self._row(frame, "Автосохранение (мин)", "15", 18)
+        resume_latest = self._row(frame, "Дообучать с последних весов? (y/n)", "y", 16)
+        review = self._row(frame, "Модерация? (y/n)", "y", 17)
+        delay_ms = self._row(frame, "Задержка (мс, 0=ожидать)", "0", 18)
+        autosave_minutes = self._row(frame, "Автосохранение (мин)", "15", 19)
 
         def run_auto() -> None:
             try:
@@ -149,6 +150,7 @@ class App(tk.Tk):
                     resume=resume.get().lower().startswith("y"),
                     weights_dir=weights_dir.get(),
                     autosave_minutes=None,
+                    resume_from_latest=resume_latest.get().lower().startswith("y"),
                 )
                 messagebox.showinfo("Готово", "Автообучение завершено.")
             except KeyboardInterrupt:
@@ -186,6 +188,7 @@ class App(tk.Tk):
                     resume=True,
                     weights_dir=weights_dir.get(),
                     autosave_minutes=int(autosave_minutes.get()),
+                    resume_from_latest=resume_latest.get().lower().startswith("y"),
                 )
                 messagebox.showinfo("Готово", "Обучение без человека завершено.")
             except KeyboardInterrupt:
@@ -194,10 +197,10 @@ class App(tk.Tk):
                 messagebox.showerror("Ошибка", str(exc))
 
         ttk.Button(frame, text="Запустить автообучение", command=run_auto).grid(
-            row=19, column=0, columnspan=2, pady=(8, 4)
+            row=20, column=0, columnspan=2, pady=(8, 4)
         )
         ttk.Button(frame, text="Начать обучение без человека", command=run_unattended).grid(
-            row=20, column=0, columnspan=2, pady=(4, 14)
+            row=21, column=0, columnspan=2, pady=(4, 14)
         )
         return frame
 
@@ -216,6 +219,7 @@ class App(tk.Tk):
         save_period = self._row(frame, "Период сохранения (эпохи)", "1", 8)
         resume = self._row(frame, "Продолжить обучение? (y/n)", "n", 9)
         weights_dir = self._row(frame, "Папка для весов", "weights", 10)
+        resume_latest = self._row(frame, "Дообучать с последних весов? (y/n)", "y", 11)
 
         def run_train() -> None:
             try:
@@ -231,13 +235,14 @@ class App(tk.Tk):
                     save_period=int(save_period.get()),
                     resume=resume.get().lower().startswith("y"),
                     weights_dir=weights_dir.get(),
+                    resume_from_latest=resume_latest.get().lower().startswith("y"),
                 )
                 messagebox.showinfo("Готово", "Обучение завершено.")
             except Exception as exc:
                 messagebox.showerror("Ошибка", str(exc))
 
         ttk.Button(frame, text="Запустить обучение", command=run_train).grid(
-            row=11, column=0, columnspan=2, pady=14
+            row=12, column=0, columnspan=2, pady=14
         )
         return frame
 
